@@ -1,15 +1,16 @@
+"""Arquivo principal com a chamada para o aplicativo"""
+
+import tkinter
+from tkinter import ttk
+from tkinter import messagebox
 import customtkinter as tk
 from tkcalendar import Calendar
-from tkinter import ttk
-import sqlite3
-import tkinter
-from tkinter import messagebox
 import requests
+from models.Model import BancoDados
 
-banco = sqlite3.connect('banco.db')
-cursor = banco.cursor()
-cursor.execute(
-    "CREATE TABLE IF NOT EXISTS banco (id INTEGER PRIMARY KEY AUTOINCREMENT, nome_cliente TEXT, contato TEXT, endereco TEXT, pedido TEXT, data_pedido TEXT, data_prev_entrega TEXT, status TEXT)")
+
+banco = BancoDados()
+banco.criar_banco()
 
 janela = tk.CTk()
 janela.geometry("625x588+311+21")
@@ -369,20 +370,18 @@ def criar_pedido():
     if data_selecionada_calendario2 is not None:
         data_calendario2 = data_selecionada_calendario2
 
-    nome_cliente = entry_nome_cliente.get()
-    contato_cliente = entry_contato_cliente.get()
-    produto = entry_produto.get()
-    endereco = entry_endereco.get()
+    dados = {
+        'nome_cliente': entry_nome_cliente.get(),
+        'contato_cliente': entry_contato_cliente.get(),
+        'produto': entry_produto.get(),
+        'endereco': entry_endereco.get(),
+        'data_calendario1': data_calendario1,
+        'data_calendario2': data_calendario2
+    }
 
     # Inserindo dados
-    cursor.execute('''INSERT INTO banco
-                  (nome_cliente, contato, endereco, pedido, data_pedido, data_prev_entrega, status)
-                  VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                   (nome_cliente, contato_cliente, endereco, produto, data_calendario1, data_calendario2,
-                    'Para Produção'))
+    banco.salvar(dados)
 
-    # Salvando as alterações
-    banco.commit()
     atualizar_treeview_todos_pedidos()
     # Exibir janela de "pedido criado"
     messagebox.showinfo("Pedido Criado", "O pedido foi criado com sucesso!")
@@ -419,14 +418,14 @@ def pesquisar_cliente():
     # ID do cliente a ser buscado
     id_cliente = entry_pesquisa.get()
     contato = entry_pesquisa.get()
-    # Executar a instrução SELECT
-    cursor.execute("SELECT * FROM banco WHERE id = ?", (id_cliente,))
-    dados_cliente = cursor.fetchone()
 
-    # Exibir os dados do cliente
-    if not dados_cliente:
-        cursor.execute("SELECT * FROM banco WHERE contato = ?", (contato,))
-        dados_cliente = cursor.fetchone()
+    # Executar a instrução SELECT
+    dados = {
+        'id_cliente': id_cliente,
+        'contato': contato
+    }
+
+    dados_cliente = banco.obter_cliente(dados)
 
     if dados_cliente:
         id_cliente = dados_cliente[0]
@@ -438,7 +437,17 @@ def pesquisar_cliente():
         data_entrega = dados_cliente[6]
         status = dados_cliente[7]
         tree.delete(*tree.get_children())
-        tree.insert("", "end", values=(id_cliente, nome, contato, endereco, pedido, data_pedido, data_entrega, status))
+        tree.insert("", "end", values=(
+                id_cliente,
+                nome,
+                contato,
+                endereco,
+                pedido,
+                data_pedido,
+                data_entrega,
+                status
+            )
+        )
 
     else:
         messagebox.showwarning("Aviso", "Cliente não encontrado!")
@@ -460,8 +469,7 @@ def filtrar():
     status_selecionado = combo_filtro.get()
 
     if status_selecionado == 'Todos':
-        cursor.execute("SELECT * FROM banco")
-        registros = cursor.fetchall()
+        registros = banco.listar()
 
         # Limpar a Treeview
         tree.delete(*tree.get_children())
@@ -471,8 +479,7 @@ def filtrar():
             tree.insert("", tk.END, values=registro)
     else:
         # Filtrar os dados da tabela "banco" com base no status selecionado
-        cursor.execute("SELECT * FROM banco WHERE status = ?", (status_selecionado,))
-        dados_filtrados = cursor.fetchall()
+        dados_filtrados = banco.obter_por_status(status_selecionado)
 
         # Limpar a Treeview
         tree.delete(*tree.get_children())
@@ -505,9 +512,7 @@ def atualizar_treeview_todos_pedidos():
     tree.delete(*tree.get_children())
 
     # Recuperar os registros do banco de dados
-    cursor = banco.cursor()
-    cursor.execute("SELECT * FROM banco")
-    registros = cursor.fetchall()
+    registros = banco.listar()
 
     # Adicionar os registros ao Treeview
     for registro in registros:
@@ -601,24 +606,23 @@ def tela_edicao():
 
         # Função para salvar as alterações
         def salvar_edicao():
-            indice = int(tree.index(item_selecionado))
-            novo_nome = entry_nome.get()
-            novo_contato = entry_contato.get()
-            novo_endereco = text_endereco.get("0.0", tk.END).rstrip('\n')
-            novo_pedido = texto_pedido.get("0.0", tk.END).rstrip('\n')
-            data_pedido = calendario_pedido.get_date()
-            data_entrega = calendario_entrega.get_date()
-            status = combo_status.get()
+            dados = {
+                'indice': int(tree.index(item_selecionado)),
+                'novo_nome': entry_nome.get(),
+                'novo_contato': entry_contato.get(),
+                'novo_endereco': text_endereco.get("0.0", tk.END).rstrip('\n'),
+                'novo_pedido': texto_pedido.get("0.0", tk.END).rstrip('\n'),
+                'data_pedido': calendario_pedido.get_date(),
+                'data_entrega': calendario_entrega.get_date(),
+                'status': combo_status.get()
+            }
 
-            indice += 1
-            if indice:
+            dados['indice'] += 1
+            if dados['indice']:
                 # Fazendo atualização de dados
                 # Atualizar os dados no banco de dados usando o índice como parâmetro
-                cursor.execute(
-                    "UPDATE banco SET nome_cliente = ?, contato = ?, endereco = ?, pedido = ?, data_pedido = ?, data_prev_entrega = ?, status = ? WHERE id = ?",
-                    (novo_nome, novo_contato, novo_endereco, novo_pedido, data_pedido, data_entrega, status, indice))
+                banco.atualizar(dados)
 
-                banco.commit()
                 atualizar_treeview_todos_pedidos()
                 messagebox.showinfo("Pedido Atualizado", "As alterações foram salvas com sucesso!")
                 janela_edicao.destroy()
@@ -639,10 +643,8 @@ def excluir():
 
             # Lógica para excluir os dados no banco de dados
             # ...
-            cursor.execute("DELETE FROM banco WHERE id = ?", (indice,))
-            # Excluir o item da Treeview
             tree.delete(item_selecionado)
-            banco.commit()
+            banco.excluir(indice)
             messagebox.showinfo("Pedido Atualizado", "Dados excluidos com sucesso!")
         else:
             print("Exclusão cancelada pelo usuário")
